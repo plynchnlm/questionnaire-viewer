@@ -4,8 +4,9 @@
  * @param text text typed in the autocomplete
  */
 function waitForFirstResultToContain(text) {
-  cy.get('#lhc-tools-searchResults li:first-child, #lhc-tools-searchResults')
-      .should('contain.text', text);
+  cy.get('#lhc-tools-searchResults li:first-child, #lhc-tools-searchResults, ' +
+    '#searchResults li:first-child, #searchResults')
+    .should('contain.text', text);
 }
 
 describe('FHIR Questionnaire Viewer with a specified FHIR server: ', () => {
