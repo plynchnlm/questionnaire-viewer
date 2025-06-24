@@ -4,7 +4,7 @@
  * @param text text typed in the autocomplete
  */
 function waitForFirstResultToContain(text) {
-  cy.get('#searchResults li:first-child, #searchResults')
+  cy.get('#lhc-tools-searchResults li:first-child, #lhc-tools-searchResults')
       .should('contain.text', text);
 }
 
