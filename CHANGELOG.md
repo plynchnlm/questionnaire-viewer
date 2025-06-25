@@ -3,6 +3,10 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
+## [0.6.2] - 2025-06-25
+### Changed
+- Updated tests for new ID lhc-tools-searchResults.
+
 ## [0.6.1] - 2025-01-30
 ### Fixed
 - Missing message about the source of the Questionnaire being displayed.
