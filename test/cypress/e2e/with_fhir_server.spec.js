@@ -21,15 +21,12 @@ describe('FHIR Questionnaire Viewer with a specified FHIR server: ', () => {
     it('should load a Questionnaire without a FHIR server', () => {
       const urlQ = 'urlQuestionnaire',
           urlS =  'urlFhirServer',
-          radioFhirServer = 'radioFhirServer',
           firstItem =  'listSelection/1',
           secondItem =  'listViewFromURL/1',
           thirdItem =  'listViewFromContext/1',
           btn = 'qv-btn-load',
           notes = 'qv-form-notes';
 
-      cy.byId(radioFhirServer)
-          .click();
       cy.byId(urlQ)
           .clear()
           .type(Cypress.config().baseUrl + '/x-fhir-query-test.R4.json');
@@ -89,15 +86,12 @@ describe('FHIR Questionnaire Viewer with a specified FHIR server: ', () => {
     it('should load a Questionnaire with a FHIR server', () => {
       const urlQ = 'urlQuestionnaire',
           urlS =  'urlFhirServer',
-          radioFhirServer = 'radioFhirServer',
           firstItem =  'listSelection/1',
           secondItem =  'listViewFromURL/1',
           thirdItem =  'listViewFromContext/1',
           btn = 'qv-btn-load',
           notes = 'qv-form-notes';
 
-      cy.byId(radioFhirServer)
-          .click();
       cy.byId(urlQ)
           .clear()
           .type(Cypress.config().baseUrl + '/x-fhir-query-test.R4.json');

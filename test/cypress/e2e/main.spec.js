@@ -190,6 +190,9 @@ describe('FHIR Questionnaire Viewer', () => {
           .should('contain.text', '/package.json.tgz');
     });
 
+    it('should load a Questionnaire with a resource package that contains an .index.json with and empty files[] array', () => {
+      throw 'TBD';
+    });
     it('should load a Questionnaire with a resource package that contains no .index.json', () => {
       const urlQ = 'urlQuestionnaire',
           urlP =  'urlPackage',

@@ -1,7 +1,6 @@
 // Imports for webpack to find assets
 import '../css/app.css';
 
-import parse from "url-parse";
 import pako from "pako";
 import untar from "js-untar-lhc";
 import str2ab from "string-to-arraybuffer";
@@ -9,10 +8,71 @@ import FHIR from 'fhirclient';
 import lformsUpdater from 'lforms-updater';
 
 let urlQSelected = null;
+let qCanonical;
 let urlPSelected = null;
 let urlSSelected = null;
-let usePackage = null;
-let results = {hasUrlQ: false, gotQ: false, hasUrlP: false, gotP: false}
+let results;
+initResults();
+
+// A set of resource types from a package file a Questionnaire might need.
+const qResourceTypes = new Set(['ValueSet', 'CodeSystem', 'Library',
+'Questionnaire']);
+
+// TBD:
+// - Add test for p & s working with p taking priority for some ValueSet
+// - Add test for "latest" lforms version
+// - support qCanonical, pID, and pVersion.  qCanonical will before
+//   Questionnaire but found from the package or server.  package is found from
+//   https://packages2.fhir.org/web/[pID]-[pVersion].tgz
+
+
+/**
+ *  A wrapper for the fetch request that sets the referrer header, so that
+ *  servers getting requests for packages and ValueSets will know who is making
+ *  the request.
+ * @param url the URL to fetch.
+ * @return the return from the standard fetch call.
+ */
+async function qvFetch(url, options) {
+  return qvOrigFetch(url, Object.assign({
+    referrer: '/questionnaire-viewer', // will be sent along with the host
+    referrerPolicy: 'unsafe-url' // send the referrer cross-origin
+  }, options));
+}
+
+// Force LForms to use the above settings.
+window.qvOrigFetch = fetch;
+window.fetch = qvFetch;
+
+/**
+ * Converts a Blob containing JSON data into a JavaScript object.
+ * (This function was written an AI.)
+ * Note:  js-untar incorrectly assumes each character is 1 byte, which is not correct for UTF-8.
+ *
+ * @param {Blob} blob - The Blob object containing JSON data.
+ * @returns {Promise<Object>} A promise that resolves with the parsed JSON object.
+ *                            If parsing fails, the promise is rejected with an error.
+ */
+function blobToJson(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = function(event) {
+      try {
+        const json = JSON.parse(event.target.result);
+        resolve(json);
+      } catch (error) {
+        reject(new Error("Failed to parse JSON: " + error.message));
+      }
+    };
+
+    reader.onerror = function() {
+      reject(new Error("Failed to read Blob: " + reader.error));
+    };
+
+    reader.readAsText(blob, 'UTF-8');
+  });
+}
 
 
 /**
@@ -22,7 +82,7 @@ let results = {hasUrlQ: false, gotQ: false, hasUrlP: false, gotP: false}
  * @returns a Promise that resolves after the Questionnaire load attempt is
  *  complete.  Errors will have been handled and messages displayed.
  */
-function addQuestionnaire(dataQ, dataPackage) {
+async function addQuestionnaire(dataQ, dataPackage) {
 
   if (dataQ && dataQ.resourceType === "Questionnaire") {
 
@@ -60,8 +120,8 @@ function addQuestionnaire(dataQ, dataPackage) {
 
       // Add the form to the page
       try {
-        return LForms.Util.addFormToPage(lfData, "qv-lforms").then(function(){
-          showInfoMessages();
+        return LForms.Util.addFormToPage(lfData, "qv-lforms").then(async function(){
+          await showInfoMessages();
           LForms.Def.ScreenReaderLog.add('A questionnaire has been displayed on the page');
         })
         .catch(error=>{
@@ -102,18 +162,27 @@ function setLoadingMessage(show) {
  * Display information message once a Questionnaire is successfully loaded,
  * with or without a package file loaded successfully.
  */
-function showInfoMessages() {
+async function showInfoMessages() {
   let formInfo = document.getElementById('qv-form-info');
   let formRendered = document.querySelector('wc-lhc-form,lforms');
   let notes = "";
-  let errorMsg;
+  const errors = [];
   if (results.hasUrlQ && results.gotQ && formRendered) {
     notes = "The following Questionnaire was loaded from " + urlQSelected;
-    if (results.hasUrlP) {
-      if (results.gotP) {
-        notes += ", with resources from " + urlPSelected;
+    if (results.pendingServerConnection)
+      await results.pendingServerConnection;
+    if (results.hasUrlP || results.hasUrlS) {
+      if (results.gotP || results.gotS) {
+        const sources = [];
+        if (results.gotP)
+          sources.push(urlPSelected);
+        if (results.gotS)
+          sources.push(urlSSelected);
+        notes += ", with resources from " + sources.join(' and ');
       }
-      else {
+      notes += '.';
+      let errorMsg;
+      if (results.hasUrlP && !results.gotP) {
         switch (results.pErrorLocation) {
           case "untar":
             errorMsg = "to untar the package file from " + urlPSelected;
@@ -130,21 +199,15 @@ function showInfoMessages() {
           default:
             errorMsg = "to fetch/process the package file from " + urlPSelected;
         }
-        //notes += ', but failed ' + errorMsg;
+        if (errorMsg)
+          errors.push("Failed "+errorMsg);
       }
-    }
-    else if (results.hasUrlS && !results.gotS) {
-      errorMsg = "to access to the FHIR Server at " + urlSSelected;
-      //notes += ", but failed "+errorMsg;
-    }
-    else if (results.hasUrlS && results.gotS) {
-      notes += ", with resources loaded from the FHIR Server at " + urlSSelected;
+      if (results.hasUrlS && !results.gotS)
+        errorMsg = "Failed to access to the FHIR Server at " + urlSSelected;
     }
 
-    notes += ".";
-
-    if (errorMsg) {
-      showErrorMessages('Failed ' + errorMsg);
+    if (errors.length) {
+      showErrorMessages(errors);
     }
     else if (!LForms.lformsVersion || LForms.lformsVersion < '36.15.0') {
       // Check for messages about ValueSets that couldn't be loaded, which in
@@ -167,74 +230,93 @@ function showInfoMessages() {
 
 
 /**
- * Load a FHIR Questionnaire resource, along with FHIR resource package data
- * and add it to pageLoad a FHIR resource package.
- * @param {*} urlQ URL of a FHIR Questionnaire resource
+ * Load a FHIR Questionnaire resource, either from the URL or from the FHIR resource package data
+ * and shows it on the page
  * @param {*} packageData a FHIR resource package, optional
+ * @param qData (optional) the Questionnaire definition, pulled from packageData
  * @returns a Promise that resolves after the Questionnaire load attempt is
  *  complete.  Errors will have been handled and messages displayed.
  */
-function loadQuestionnaire(urlQ, packageData) {
-
-  return fetch(urlQ)
-    .then(res => {
+function loadQuestionnaire(packageData, qData) {
+  let qPromise;
+  if (qData) {
+    qPromise = Promise.resolve(qData);
+  }
+  else if (qCanonical) {
+    qPromise = Promise.reject(`Questionnaire "${qCanonical} was not found in the package.`);
+  }
+  else if (urlQSelected) {
+    qPromise = qvFetch(urlQSelected).then(res => {
       if (res.ok) {
-        return res.json()
+        return res.json();
       }
       else {
-        return Promise.reject("No data returned from " + urlQ)
+        throw "No data returned from " + urlQSelected;
       }
     })
     .then(json => {
-      if (json && json.resourceType === "Questionnaire") {
-        results.gotQ = true;
-        return addQuestionnaire(json, packageData)
+      if (json.resourceType !== "Questionnaire") {
+        throw "No Questionnaire (JSON) returned from " + urlQSelected;
       }
-      else {
-        return Promise.reject("No Questionnaire (JSON) returned from " + urlQ)
-      }
-    })
-    .catch(error => {
-      console.error('Error:', error);
-      if (typeof error === 'string') {
-        showErrorMessages(error);
-      }
-      else {
-        showErrorMessages("Failed to load Questionnaire from " + urlQ);
-      }
+      return json;
     });
+  }
+  else {
+    qPromise = Promise.reject("No parameters specified a questionnaire to display");
+  }
+
+  return qPromise.then((qJson)=>{
+    results.gotQ = true;
+    return addQuestionnaire(qJson, packageData)
+  })
+  .catch(error => {
+    console.error('Error:', error);
+    if (typeof error === 'string') {
+      showErrorMessages(error);
+    }
+    else {
+      showErrorMessages("Failed to load Questionnaire from " + urlQSelected);
+    }
+  });
 }
 
 
 /**
  * Construct a files info array with the same structure of 'files' in .index.json
-*  where resourceType, url and version are used in LHC-Forms to identifier a resource.
-*  See https://confluence.hl7.org/display/FHIR/NPM+Package+Specification#NPMPackageSpecification-.index.json
+ *  where resourceType, url and version are used in LHC-Forms to identifier a resource.
+ *  See https://confluence.hl7.org/display/FHIR/NPM+Package+Specification#NPMPackageSpecification-.index.json
  * @param {*} extractedFiles an array of file objects extracted from a tar file using js-untar-lhc npm package.
+ * @return the package data and the questionnaire if it was found in the
+ *  package.
  */
-function constructResourcePackage(extractedFiles) {
+async function constructResourcePackage(extractedFiles) {
 
-  let packageData = [];
+  let packageData = [], qData;
 
   for (let j=0, jLen = extractedFiles.length; j<jLen; j++) {
-    let fileInfo = {};
     let extractedFile = extractedFiles[j];
 
     if (extractedFile.name.match(/^package.*\.json$/)) {
-      let fileContent = extractedFile.readAsJSON();
-      if (fileContent && (fileContent.resourceType === 'ValueSet' || fileContent.resourceType === 'CodeSystem')) {
-        packageData.push({
-          filename: extractedFile.name.replace(/^package\//, ""),
-          fileContent: fileContent,
-          url: fileContent.url,
-          version: fileContent.version,
-          resourceType: fileContent.resourceType
-        })
+      console.log('Reading:  ' + extractedFile.name);
+      let fileContent = await blobToJson(extractedFile.blob);
+      if (fileContent &&
+          qResourceTypes.has(fileContent.resourceType)) {
+        if (fileContent.resourceType != 'Questionnaire') {
+          packageData.push({
+            filename: extractedFile.name.replace(/^package\//, ""),
+            fileContent: fileContent,
+            url: fileContent.url,
+            version: fileContent.version,
+            resourceType: fileContent.resourceType
+          })
+        }
+        else if (qCanonical && fileContent.url == qCanonical)
+          qData = fileContent;
       }
     }
   }
 
-  return packageData;
+  return [packageData, qData];
 }
 
 
@@ -244,14 +326,13 @@ function constructResourcePackage(extractedFiles) {
  * It then processes the file in memory and call loadQuestionnaire to add the questionnaire to the page.
  * See https://stackoverflow.com/questions/47443433/extracting-gzip-data-in-javascript-with-pako-encoding-issues
  * @param {*} urlPackage URL of a FHIR resource package
- * @param {*} urlQ URL of a FHIR Questionnaire resource
  */
-function loadPackageAndQuestionnaire(urlPackage, urlQ) {
+async function loadPackageAndQuestionnaire(urlPackage) {
 
   let packageData = [];
 
   if (urlPackage) {
-    return fetch(urlPackage)
+    return qvFetch(urlPackage)
       .then(response => {
         if(!response.ok) {
           throw response.ok // let catch handle it
@@ -314,48 +395,68 @@ function loadPackageAndQuestionnaire(urlPackage, urlQ) {
                 //   packageFiles[extractedFile.name] = extractedFile.readAsJSON();
                 // }
               // })
-              .then(function(extractedFiles) {
-                if (Array.isArray(extractedFiles) && extractedFiles.length > 0) {
-                  // all extracted files
-                  let resInIndex = {}; // key is the file name, value is file info object
-                  // check if the optional file, .index.json, is in the package
-                  let indexFile = extractedFiles.find(function(file) { return file.name === 'package/.index.json';});
-                  // only process files listed in .index.json if there is a .index.json
-                  if (indexFile) {
-                    let indexFileContent = indexFile.readAsJSON();
-                    for (let i=0, iLen = indexFileContent.files.length; i<iLen; i++) {
-                      let fileInfo = indexFileContent.files[i];
-                      if (fileInfo.resourceType === 'ValueSet' || fileInfo.resourceType === 'CodeSystem') {
-                        resInIndex[fileInfo.filename] = fileInfo;
+              .then(async function(extractedFiles) {
+                try { // zone.min.js blocks normal Promise-based catch
+                  if (Array.isArray(extractedFiles) && extractedFiles.length > 0) {
+                    // all extracted files
+                    let resInIndex = {}; // key is the file name, value is file info object
+                    let qData; // the Questionnaire data read from the package
+                    // check if the optional file, .index.json, is in the package
+                    let indexFile = extractedFiles.find(function(file) { return file.name === 'package/.index.json';});
+                    // only process files listed in .index.json if there is a .index.json
+                    if (indexFile) {
+                      let indexFileContent = indexFile.readAsJSON();
+                      if (indexFileContent.files.length) {
+                        for (let i=0, iLen = indexFileContent.files.length; i<iLen; i++) {
+                          let fileInfo = indexFileContent.files[i];
+                          if (qResourceTypes.has(fileInfo.resourceType)) {
+                            resInIndex[fileInfo.filename] = fileInfo;
+                          }
+                        }
+                        // remove the 'package/' from the file name and add file content
+                        for (let j=0, jLen = extractedFiles.length; j<jLen; j++) {
+                          let extractedFile = extractedFiles[j];
+                          let fileInfo = resInIndex[extractedFile.name.replace(/^package\//, "")];
+                          if (fileInfo && fileInfo.resourceType) {
+                            const fileContent = await blobToJson(extractedFile.blob);
+                            if (fileContent.resourceType != 'Questionnaire') {
+                              fileInfo.fileContent = fileContent;
+                              packageData.push(fileInfo);
+                            }
+                            else if (qCanonical && fileContent.url == qCanonical)
+                              qData = fileContent;
+                          }
+                        }
+                      }
+                      else {
+                        [packageData, qData] = await constructResourcePackage(extractedFiles)
                       }
                     }
-                    // remove the 'package/' from the file name and add file content
-                    for (let j=0, jLen = extractedFiles.length; j<jLen; j++) {
-                      let extractedFile = extractedFiles[j];
-                      let fileInfo = resInIndex[extractedFile.name.replace(/^package\//, "")];
-                      if (fileInfo && (fileInfo.resourceType === 'ValueSet' || fileInfo.resourceType === 'CodeSystem')) {
-                        fileInfo.fileContent = extractedFile.readAsJSON();
-                        packageData.push(fileInfo);
-                      }
+                    // process all .json files in the /package directory if there is no .index.json
+                    else {
+                      [packageData, qData] = await constructResourcePackage(extractedFiles)
                     }
+
+                    // packageData has the same structure of the .index.json file in the package file, with an extra fileContent
+                    // that contains the data in each resource file.
+                    // See https://confluence.hl7.org/display/FHIR/NPM+Package+Specification
+
+                    // load questionnaire with the pakcage data
+                    results.gotP = true;
+                    return loadQuestionnaire(packageData, qData)
                   }
-                  // process all .json files in the /package directory if there is no .index.json
                   else {
-                    packageData = constructResourcePackage(extractedFiles)
+                    results.gotP = false;
+                    results.pErrorLocation = "untar";
+                    return loadQuestionnaire(packageData)
                   }
-
-                  // packageData has the same structure of the .index.json file in the package file, with an extra fileContent
-                  // that contains the data in each resource file.
-                  // See https://confluence.hl7.org/display/FHIR/NPM+Package+Specification
-
-                  // load questionnaire with the pakcage data
-                  results.gotP = true;
-                  return loadQuestionnaire(urlQ, packageData)
                 }
-                else {
+                catch(error) {
+                  console.error('Untar Error', urlPackage, error);
                   results.gotP = false;
                   results.pErrorLocation = "untar";
-                  return loadQuestionnaire(urlQ, packageData)
+                  // try to load the questionnaire without the package
+                  return loadQuestionnaire()
                 }
               })
               .catch(function (error) {
@@ -363,7 +464,7 @@ function loadPackageAndQuestionnaire(urlPackage, urlQ) {
                 results.gotP = false;
                 results.pErrorLocation = "untar";
                 // try to load the questionnaire without the package
-                return loadQuestionnaire(urlQ)
+                return loadQuestionnaire()
               });
 
           }
@@ -372,7 +473,7 @@ function loadPackageAndQuestionnaire(urlPackage, urlQ) {
             results.gotP = false;
             results.pErrorLocation = "unzip";
             // try to load the questionnaire without the package
-            return loadQuestionnaire(urlQ)
+            return loadQuestionnaire()
           }
 
         };
@@ -382,7 +483,7 @@ function loadPackageAndQuestionnaire(urlPackage, urlQ) {
           results.gotP = false;
           esults.pErrorLocation = "reader";
           // try to load the questionnaire without the package
-          return loadQuestionnaire(urlQ)
+          return loadQuestionnaire()
         };
 
         reader.readAsDataURL(response);
@@ -392,7 +493,7 @@ function loadPackageAndQuestionnaire(urlPackage, urlQ) {
         results.gotP = false;
         results.pErrorLocation = "fetch"
         // try to load the questionnaire without the package
-        return loadQuestionnaire(urlQ)
+        return loadQuestionnaire()
       });
   }
 }
@@ -462,69 +563,86 @@ function resetPage() {
  * Sets up a client for a standard (open) FHIR server.
  * @param urlFhirServer the URL of a FHIR server.
  *  whether communication with the server was successfully established.
+ * @return a Promise which resolves or rejects to indicate the success.
  */
-function setupFHIRServerAndLoadQuestionnaire(urlFhirServer) {
-  try {
+function setupFHIRServer(urlFhirServer) {
+  return (results.pendingServerConnection = new Promise((resolve, reject)=> {
     let fhir = FHIR.client(urlFhirServer);
     LForms.Util.setFHIRContext(fhir);
     // Retrieve the fhir version
     LForms.Util.getServerFHIRReleaseID(function(releaseID) {
       if (releaseID !== undefined) {
         results.gotS = true;
+        resolve();
       }
       else {
         results.gotS = false;
         LForms.fhirContext = null;
+        reject();
       }
-      loadQuestionnaire(urlQSelected)
     });
-  }
-  catch (e) {
-    results.gotS = false;
-    console.log(e)
-    loadQuestionnaire(urlQSelected)
-  }
+  }));
 }
+
+/**
+ *  Initializes the results object for keeping track of the state of the current
+ *  attempt of show a Questionnaire.
+ */
+function initResults() {
+  results = {hasUrlQ: false, gotQ: false, hasUrlP: false, gotP: false, hasUrlS: false, gotS: false};
+}
+
 
 /**
  * Show a Questionnaire based on the parameters
  */
-function showQuestionnaire() {
-
-  results = {hasUrlQ: false, gotQ: false, hasUrlP: false, gotP: false, hasUrlS: false, gotS: false};
+async function showQuestionnaire() {
+  initResults();
 
   // has a Questionnaire URL
-  if (urlQSelected) {
-    results.hasUrlQ = true;
+  if (urlQSelected || qCanonical) {
+    if (urlQSelected)
+      results.hasUrlQ = true;
     setLoadingMessage(true);
-    // use a resource package
-    if (usePackage) {
-      // has a resource package URL
-      if (urlPSelected) {
-        results.hasUrlP = true;
-        loadPackageAndQuestionnaire(urlPSelected, urlQSelected)
-      }
-      // no resource package URL
-      else {
-        loadQuestionnaire(urlQSelected);
-      }
+    if (urlSSelected) {
+      // use a FHIR server
+      results.hasUrlS = true;
+      setupFHIRServer(urlSSelected);
     }
-    // use a FHIR server
+    if (urlPSelected) {
+      // use a resource package
+      results.hasUrlP = true;
+      await loadPackageAndQuestionnaire(urlPSelected)
+    }
     else {
-      // has a FHIR server URL
-      if (urlSSelected) {
-        results.hasUrlS = true;
-        setupFHIRServerAndLoadQuestionnaire(urlSSelected);
-      }
-      // no FHIR server URL
-      else {
-        loadQuestionnaire(urlQSelected);
-      }
+      // no package data
+      loadQuestionnaire();
     }
   }
-  // no Questionnaire URL
   else {
+    // no Questionnaire URL
     showErrorMessages("Please provide the URL of a FHIR Questionnaire.")
+  }
+}
+
+/**
+ *  Processed the parameters either from the URL or from the form.
+ * @param configParams A Map-like object with the configuration
+ *  parameter data.
+ */
+function processParameters(configParams) {
+  urlQSelected = configParams.get('q');
+  urlPSelected = configParams.get('p');
+  urlSSelected = configParams.get('s');
+
+  if (!urlPSelected) {
+    const pID = configParams.get('pID');
+    const pVersion = configParams.get('pVersion');
+    if (pID && pVersion)
+      urlPSelected = `https://packages2.fhir.org/web/${pID}-${pVersion}.tgz`;
+  }
+  if (!urlQSelected) {
+    qCanonical = configParams.get('qCanonical');
   }
 }
 
@@ -537,22 +655,15 @@ export function onPageLoad() {
   resetPage();
 
   // http://localhost:4029/?q=http://localhost:8080/questionnaire-use-package.json&p=http://localhost:8080/package.json.tgz
-  let inputPanel = document.getElementById('qv-form-input');
-  let urlLaunch = window.location.href;
-  let parsedUrl = parse(urlLaunch, true);
-  urlQSelected = parsedUrl && parsedUrl.query ? parsedUrl.query.q : null;
-  urlPSelected = parsedUrl && parsedUrl.query ? parsedUrl.query.p : null;
-  urlSSelected = parsedUrl && parsedUrl.query ? parsedUrl.query.s : null;
+  const inputPanel = document.getElementById('qv-form-input');
+  const urlLaunch = window.location.href;
+  processParameters((new URL(urlLaunch)).searchParams);
 
-  // show input panel if parameters are not provided in URL
-  if (!urlQSelected ) {
+   // show input panel if parameters are not provided in URL
+  if (!urlQSelected && !qCanonical) {
     inputPanel.style.display = ''
   }
   else {
-    // If both a package file and a FHIR server are present, use only the package file.
-    if (urlPSelected) {
-      usePackage = true;
-    }
     showQuestionnaire();
   }
 }
@@ -560,6 +671,7 @@ export function onPageLoad() {
 
 /**
  * Load the FHIR Questionnarie and resource package using the URLs users types in the fields
+ * (Called when the user clicks a button.)
  */
 export function viewQuestionnaire() {
 
@@ -574,14 +686,15 @@ export function viewQuestionnaire() {
   let inputPanel = document.getElementById('qv-form-input');
 
   inputPanel.style.display = ''
-  urlQSelected = document.getElementById('urlQuestionnaire').value;
-  urlPSelected = document.getElementById('urlPackage').value;
-  urlSSelected = document.getElementById('urlFhirServer').value;
-  usePackage = document.getElementById('radioPackage').checked;
+  processParameters(new Map([
+    ['q', document.getElementById('urlQuestionnaire').value],
+    ['p', document.getElementById('urlPackage').value],
+    ['s', document.getElementById('urlFhirServer').value]
+  ]));
 
   showQuestionnaire();
-
 }
+
 
 /**
  * Toggle the disable/enable attributes of the input fields for package URL and FHRI server URL
