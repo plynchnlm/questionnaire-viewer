@@ -81,7 +81,21 @@ describe('FHIR Questionnaire Viewer', () => {
       });
       cy.byId('qv-lforms').should('not.be.visible');
     });
+
+    it('should not accept lforms=latest', ()=>{
+      const lfv='latest';
+      // The actual version loaded will be a value at least 38 or higher.
+      // Check the first part of the version strings.
+      cy.visit('/?q='+encodeURIComponent(qURL)+'&lfv='+lfv);
+      cy.window().should('have.property', 'LForms');
+      cy.window().then(win=>{
+        expect(parseInt(win.LForms.lformsVersion.split('.')[0])).to.be.at.least(38);
+      });
+      cy.byId('qv-lforms').should('contain.text', 'Weight'); // confirm the questionnaire is loaded
+    });
+
   });
+
 
   describe('URLs provided on page', () => {
     beforeEach(() => {
@@ -190,9 +204,50 @@ describe('FHIR Questionnaire Viewer', () => {
           .should('contain.text', '/package.json.tgz');
     });
 
+
     it('should load a Questionnaire with a resource package that contains an .index.json with and empty files[] array', () => {
-      throw 'TBD';
+      // Not sure this is a valid case, but it happened.
+      const urlQ = 'urlQuestionnaire',
+          urlP =  'urlPackage',
+          firstItem =  '/q1/1',
+          secondItem =  '/q2/1',
+          thirdItem =  '/q3/1',
+          btn = 'qv-btn-load',
+          notes = 'qv-form-notes';
+
+      cy.byId(urlQ)
+          .clear()
+          .type(Cypress.config().baseUrl + '/questionnaire-use-package.json');
+      const packageURL = '/package-empty-files-array.json.tgz';
+      cy.byId(urlP)
+          .clear()
+          .type(Cypress.config().baseUrl + packageURL);
+      cy.byId(btn)
+          .click();
+
+      cy.byId(firstItem)
+          .should('be.visible')
+          .click()
+          .type('{downArrow}')
+          .blur();
+      cy.byId(firstItem)
+          .should('have.value', 'Cholesterol [Moles/volume] in Serum or Plasma');
+
+      cy.byId(secondItem)
+          .should('be.visible')
+          .click()
+          .type('{downArrow}')
+          .type('{downArrow}')
+          .blur();
+      cy.byId(secondItem)
+          .should('have.value', 'Cholesterol/Triglyceride [Mass Ratio] in Serum or Plasma');
+
+      cy.byId(notes)
+          .should('contain.text', '/questionnaire-use-package.json')
+          .should('contain.text', packageURL);
     });
+
+
     it('should load a Questionnaire with a resource package that contains no .index.json', () => {
       const urlQ = 'urlQuestionnaire',
           urlP =  'urlPackage',
@@ -240,6 +295,53 @@ describe('FHIR Questionnaire Viewer', () => {
       // failing the test from console errors of the app.
       return false;
     });
+
+    it('should support finding a Questionnaire in the package', ()=>{
+      const appBase = Cypress.config().baseUrl;
+      const testDataBase = appBase;
+      // A test of a the qCanonical parameter without the version.  Another test
+      // will try with the version.
+      const url = appBase + '/?lfv=latest&qCanonical=example-questionnaire' +
+        '&p=' + appBase + '/package-with-q.json.tgz';
+      cy.visit(url);
+      const questionID = '1/1';
+      cy.byId(questionID)
+          .type('{downArrow}')
+          .type('{enter}');
+      cy.byId(questionID)
+          .should('have.value', 'Blue'); // ValueSet is also from the package
+    });
+
+
+    it('should support find the right version of a Questionnaire in the package', ()=>{
+      const appBase = Cypress.config().baseUrl;
+      const testDataBase = appBase;
+      // Test version v1 of the example-questionnaire
+      const url = appBase + '/?lfv=latest&qCanonical=example-questionnaire%7Cv1' +
+        '&p=' + appBase + '/package-with-q-2versions.json.tgz';
+      cy.visit(url);
+      const questionID = '1/1';
+      cy.byId(questionID)
+          .type('{downArrow}')
+          .type('{enter}');
+      cy.byId(questionID)
+          .should('have.value', 'Blue'); // ValueSet is also from the package
+
+      // Test version v2 of the example-questionnaire.  It is the same except
+      // for a different linkId.
+      const url2 = appBase + '/?lfv=latest&qCanonical=example-questionnaire%7Cv2' +
+        '&p=' + appBase + '/package-with-q-2versions.json.tgz';
+      cy.visit(url2);
+      const questionID2 = '2/1';
+      cy.byId(questionID2)
+          .type('{downArrow}')
+          .type('{enter}');
+      cy.byId(questionID2)
+          .should('have.value', 'Blue'); // ValueSet is also from the package
+
+    });
+
+
 
     it('should load a Questionnaire without resource package', () => {
       const notes = 'qv-form-notes';

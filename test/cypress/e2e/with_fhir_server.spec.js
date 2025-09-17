@@ -293,5 +293,48 @@ describe('FHIR Questionnaire Viewer with a specified FHIR server: ', () => {
       cy.byId(inputPanel)
           .should('not.be.visible');
     });
+
+    it('should prefer to get ValueSets from the package rather than the FHIR' +
+       'server if both are specified', ()=> {
+      // For some reason this fails with version 29 of lforms, so test with
+      // lfv=latest.
+
+      // First make sure the server's version is used if the package is not
+      // present.
+      const serverBase = 'https://lforms-fhir.nlm.nih.gov/baseR4';
+      const appBase = Cypress.config().baseUrl;
+      const testDataBase = appBase;
+      const url = appBase + '/?lfv=latest&q=' + testDataBase +
+      '/questionaire-answerValueSet.json' + '&s=' + serverBase;
+
+      cy.mockApiResponse(serverBase +
+        '/ValueSet/%24expand?url=http%3A%2F%2Fhl7.org%2Ffhir%2FValueSet%2Flanguage-preference-type*',
+        'ValueSet-preferred-language-type.json', 'serverVS');
+
+      cy.visit(url);
+      cy.wait('@serverVS');
+      const questionID = '1/1';
+      // Confirm that we are getting the (mocked) server copy.
+      cy.byId(questionID)
+          .type('{downArrow}')
+          .type('{enter}');
+      cy.byId(questionID)
+          .should('have.value', 'apples');
+
+      // Now include a package that has a modified list.
+      cy.mockApiResponse(serverBase +
+        '/ValueSet/%24expand?url=http%3A%2F%2Fhl7.org%2Ffhir%2FValueSet%2Flanguage-preference-type*',
+        'ValueSet-preferred-language-type.json', 'serverVS');
+
+      const url2 = appBase + '/?lfv=latest&q=' + Cypress.config().baseUrl +
+      '/questionaire-answerValueSet.json' + '&s=' + serverBase + '&p=' + appBase + '/package-mod-ValueSet.json.tgz';
+      cy.visit(url2);
+      cy.byId(questionID)
+          .type('{downArrow}')
+          .type('{enter}');
+      cy.byId(questionID)
+          .should('have.value', 'Blue');
+    });
   });
+
 });

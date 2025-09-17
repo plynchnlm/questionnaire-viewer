@@ -88,8 +88,10 @@
         </div>
 
         <div id="qv-param-notes">*Note: These field values can be specified in
-        the URL.  Supported URL parameters are:
-          <ul>
+        the URL.  (<a href="javascript:void(0)"
+        onclick="document.getElementById('supportedURLParams').style.display='block'">View
+        supported URL parameters</a>)
+          <ul id=supportedURLParams>
             <li><b>q</b> - a URL for a fetching a Questionnaire JSON</li>
             <li><b>qCanonical</b> - a FHIR canonical URI for the Questionnaire.
              (This requires either a package or a FHIR server to be specified via
