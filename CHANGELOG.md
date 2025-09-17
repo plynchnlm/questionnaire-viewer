@@ -10,6 +10,7 @@ This project follows [Semantic Versioning](http://semver.org/).
   from a package.
 - Allowed use of both "p" and "s" parameters simultaneously, with the package
   takeing prioriy.
+- Added support for s=default (a default terminology server)
 
 ## [0.6.2] - 2025-06-25
 ### Changed

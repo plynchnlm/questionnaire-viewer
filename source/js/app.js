@@ -673,6 +673,9 @@ function processParameters(configParams) {
   urlPSelected = configParams.get('p');
   urlSSelected = configParams.get('s');
 
+  if (urlSSelected=='default')
+    urlSSelected = 'https://tx.fhir.org/r4'; // for now
+
   if (!urlPSelected) {
     const pID = configParams.get('pID');
     const pVersion = configParams.get('pVersion');
