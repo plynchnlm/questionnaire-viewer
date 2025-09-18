@@ -76,13 +76,13 @@
         </div>
         <div class="qv-url-row">
           <div class='qv-url-name'>
-            <label for="radioPackage">URL of a FHIR resource package:</label>
+            <label for="urlPackage">URL of a FHIR resource package:</label>
           </div>
           <div class='qv-url-value'><input type="text" id="urlPackage"></div>
         </div>
         <div class="qv-url-row">
           <div class='qv-url-name'>
-            <label for="radioFhirServer">URL of a FHIR server for resources:</label>
+            <label for="urlFhirServer">URL of a FHIR server for resources:</label>
           </div>
           <div class='qv-url-value'><input type="text" id="urlFhirServer"></div>
         </div>
@@ -92,10 +92,11 @@
         onclick="document.getElementById('supportedURLParams').style.display='block'">View
         supported URL parameters</a>)
           <ul id=supportedURLParams>
-            <li><b>q</b> - a URL for a fetching a Questionnaire JSON</li>
-            <li><b>qCanonical</b> - a FHIR canonical URI for the Questionnaire.
-             (This requires either a package or a FHIR server to be specified via
-             other parameters.)</li>
+            <li><b>q</b> - a URL for a fetching a Questionnaire JSON.  Either
+             this or qCanonical can be used to specify the Questionnaire. </li>
+            <li><b>qCanonical</b> - a FHIR canonical URI for the Questionnaire,
+             for which a match will be sought in the package specified by other
+             parameters.</li>
             <li><b>p</b> - a URL for a FHIR resource package, which could contain
              the Questionnaire and/or other resources the FHIR Questionnaire
              needs, such as ValueSets.</li>
@@ -105,7 +106,8 @@
              above.</li>
             <li><b>s</b> - a server from which the Questionnaire's resources can
              be fetched if they are not found in the package specified via other
-             parameters.</li>
+             parameters.   A special value of "default" may be used to have this
+             app select and use a terminology server.</li>
             <li><b>lfv</b> - the version number of lforms to be used.  If this is
              not specified, a default will be chosen.  If this is specified as
              "latest", the last-published version will be used.</li>

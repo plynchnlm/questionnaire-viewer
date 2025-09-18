@@ -84,7 +84,7 @@ describe('FHIR Questionnaire Viewer', () => {
       cy.byId('qv-lforms').should('not.be.visible');
     });
 
-    it('should not accept lforms=latest', ()=>{
+    it('should accept lforms=latest', ()=>{
       const lfv='latest';
       // The actual version loaded will be a value at least 38 or higher.
       // Check the first part of the version strings.
@@ -340,7 +340,7 @@ describe('FHIR Questionnaire Viewer', () => {
     });
 
 
-    it('should support find the right version of a Questionnaire in the package', ()=>{
+    it('should support finding the right version of a Questionnaire in the package', ()=>{
       const appBase = Cypress.config().baseUrl;
       const testDataBase = appBase;
       // Test version v1 of the example-questionnaire

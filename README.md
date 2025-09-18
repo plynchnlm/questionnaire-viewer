@@ -7,10 +7,10 @@ render a [FHIR](https://www.hl7.org/fhir/)
 [Questionnaire](https://www.hl7.org/fhir/questionnaire.html) with an optional FHIR
 resources package.
 
-This single page app accepts two parameters in its URL to specify other URLs for
-retrieving the questionnaire to display and the package of resources:
- -  q: specifies where to get the FHIR Questionnare resource. 
- -  p: specifies where to get the FHIR resource package file, and is optional.
+This single page app accepts two parameters in its URL to specify how to
+retrieve the Questionnaire and its needed resources.  These are documented on
+the app's page when you don't specify an parameters; otherwise that section is
+hidden.
 
 Usage:
 

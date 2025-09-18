@@ -9,7 +9,7 @@ This project follows [Semantic Versioning](http://semver.org/).
 - Added new parameter, qCanonical which can be used to retrieve a Questionnaire
   from a package.
 - Allowed use of both "p" and "s" parameters simultaneously, with the package
-  takeing prioriy.
+  taking prioriy.
 - Added support for s=default (a default terminology server)
 
 ## [0.6.2] - 2025-06-25
