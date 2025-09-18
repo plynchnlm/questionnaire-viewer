@@ -19,13 +19,6 @@ initResults();
 const qResourceTypes = new Set(['ValueSet', 'CodeSystem', 'Library',
 'Questionnaire']);
 
-// TBD:
-// - Add test for p & s working with p taking priority for some ValueSet
-// - Add test for "latest" lforms version
-// - support qCanonical, pID, and pVersion.  qCanonical will before
-//   Questionnaire but found from the package or server.  package is found from
-//   https://packages2.fhir.org/web/[pID]-[pVersion].tgz
-
 
 /**
  *  A wrapper for the fetch request that sets the referrer header, so that
