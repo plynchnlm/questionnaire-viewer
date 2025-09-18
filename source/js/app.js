@@ -6,6 +6,7 @@ import untar from "js-untar-lhc";
 import str2ab from "string-to-arraybuffer";
 import FHIR from 'fhirclient';
 import lformsUpdater from 'lforms-updater';
+import {defaultTerminologyServer, getPackageURL} from './config';
 
 let urlQSelected = null;
 let qCanonical;
@@ -485,25 +486,28 @@ async function loadPackageAndQuestionnaire(urlPackage) {
                 console.error('Untar Error', urlPackage, error);
                 results.gotP = false;
                 results.pErrorLocation = "untar";
-                // try to load the questionnaire without the package
-                return loadQuestionnaire()
+                // try to load the questionnaire without the package, if we have a URL
+                if (urlQSelected)
+                  return loadQuestionnaire()
               }
             })
             .catch(function (error) {
               console.error('Untar Error', urlPackage, error);
               results.gotP = false;
               results.pErrorLocation = "untar";
-              // try to load the questionnaire without the package
-              return loadQuestionnaire()
+              // try to load the questionnaire without the package, if we have a URL
+              if (urlQSelected)
+                return loadQuestionnaire()
             });
-
         }
         catch(error) {
+          showErrorMessages(`Unable to unpack the package file ${urlPackage}.`);
           console.log("Unzip Error", urlPackage, error)
           results.gotP = false;
           results.pErrorLocation = "unzip";
-          // try to load the questionnaire without the package
-          return loadQuestionnaire()
+          // try to load the questionnaire without the package, if we have a URL
+          if (urlQSelected)
+            return loadQuestionnaire()
         }
 
       };
@@ -674,13 +678,13 @@ function processParameters(configParams) {
   urlSSelected = configParams.get('s');
 
   if (urlSSelected=='default')
-    urlSSelected = 'https://tx.fhir.org/r4'; // for now
+    urlSSelected = defaultTerminologyServer;
 
   if (!urlPSelected) {
     const pID = configParams.get('pID');
     const pVersion = configParams.get('pVersion');
     if (pID && pVersion)
-      urlPSelected = `https://packages2.fhir.org/web/${pID}-${pVersion}.tgz`;
+      urlPSelected = getPackageURL(pID, pVersion);
   }
   if (!urlQSelected) {
     qCanonical = configParams.get('qCanonical');
@@ -751,8 +755,8 @@ export function toggleInputFields(eleId2Disable, eleId2Enable) {
   if (eleEnable) {
     eleEnable.disabled = false;
   }
-
 }
+
 
 // Parcel does not by default provide these exported functions on a global
 // object, so create one here.

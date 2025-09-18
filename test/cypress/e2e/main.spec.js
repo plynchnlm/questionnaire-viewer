@@ -1,3 +1,5 @@
+import {getPackageURL} from '../../../source/js/config.js';
+
 describe('FHIR Questionnaire Viewer', () => {
   describe('LForms Version menu', ()=>{
     it('should reload the page with a different LForms version', ()=>{
@@ -299,7 +301,7 @@ describe('FHIR Questionnaire Viewer', () => {
     it('should support finding a Questionnaire in the package', ()=>{
       const appBase = Cypress.config().baseUrl;
       const testDataBase = appBase;
-      // A test of a the qCanonical parameter without the version.  Another test
+      // A test of the qCanonical parameter without the version.  Another test
       // will try with the version.
       const url = appBase + '/?lfv=latest&qCanonical=example-questionnaire' +
         '&p=' + appBase + '/package-with-q.json.tgz';
@@ -310,6 +312,31 @@ describe('FHIR Questionnaire Viewer', () => {
           .type('{enter}');
       cy.byId(questionID)
           .should('have.value', 'Blue'); // ValueSet is also from the package
+    });
+
+    xit('should support specifying the package by its ID and a version', ()=>{
+      // I disabled this test because I could not get Cypress to mock the fetch
+      // of the package file.
+      // Use the SDC IG package, but mock it to return package-with-q.json.tgz
+      const pID = 'hl7.fhir.uv.sdc.r4';
+      const pVersion = '3.0.0';
+      //cy.mockApiResponse('https://packages2.fhir.org/web/hl7.fhir.uv.sdc.r4-3.0.0.tgz',
+      cy.mockApiResponse(getPackageURL(pID, pVersion),
+        'package-with-q.json.tgz', 'packageURL');
+
+      const appBase = Cypress.config().baseUrl;
+      const testDataBase = appBase;
+      // A test of the qCanonical parameter without the version.  Another test
+      // will try with the version.
+      const url = appBase + '/?lfv=latest&qCanonical=example-questionnaire' +
+        '&pID='+pID+'&pVersion='+pVersion;
+
+      cy.visit(url);
+
+      // Make sure the Questionnaire is present, indicating that the package was
+      // found (because the Questionnaire was in it).
+      const questionID = '1/1';
+      cy.byId(questionID).should('exist');
     });
 
 

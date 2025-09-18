@@ -1,3 +1,5 @@
+import {defaultTerminologyServer} from '../../../source/js/config.js';
+
 /**
  * Wait for the Prefetch autocomplete filtered results to update,
  * so the first result contains text typed in the autocomplete.
@@ -300,7 +302,7 @@ describe('FHIR Questionnaire Viewer with a specified FHIR server: ', () => {
 
       // First make sure the server's version is used if the package is not
       // present.
-      const serverBase = 'https://tx.fhir.org/r4'; // current default, though that might change
+      const serverBase = defaultTerminologyServer;
       const appBase = Cypress.config().baseUrl;
       const testDataBase = appBase;
       const url = appBase + '/?lfv=latest&q=' + testDataBase +
